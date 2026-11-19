@@ -1,0 +1,2 @@
+- simplifying state in useJob
+- 
