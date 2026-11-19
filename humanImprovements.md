@@ -1,2 +1,3 @@
 - simplifying state in useJob
-- 
+- improving front-end visual aesthetic
+- check on test coverage
