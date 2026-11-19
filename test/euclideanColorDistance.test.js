@@ -3,7 +3,7 @@ import {
   distance,
   parseHexColor,
   toHexColor,
-} from '../src/lib/euclideanColorDistance.js';
+} from '../src/utils/euclideanColorDistance.js';
 
 // Mirrors EuclideanColorDistanceTests.java. Same cases, same expected values --
 // if the JS port ever drifts from the Java, these fail.

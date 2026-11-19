@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { startJob, fetchJobStatus, ApiError } from '../api/client.js';
+import { startJob, fetchJobStatus } from '../api.js';
 
 /** How often to ask the server for job status. */
 const POLL_INTERVAL_MS = 1000;
@@ -45,11 +45,8 @@ export function useJob(filename) {
         // The server has accepted the work (202) but not finished it.
         setStatus('processing');
       } catch (e) {
-        setError(
-          e instanceof ApiError
-            ? e.message
-            : `Could not reach the server: ${e.message}`
-        );
+        // api.js surfaces the backend's own {"error": "..."} message.
+        setError(e.message);
         setStatus('error');
       } finally {
         setSubmitting(false);
@@ -63,11 +60,10 @@ export function useJob(filename) {
     if (!jobId || status !== 'processing') return;
 
     let cancelled = false;
-    const controller = new AbortController();
 
     const poll = async () => {
       try {
-        const body = await fetchJobStatus(jobId, { signal: controller.signal });
+        const body = await fetchJobStatus(jobId);
         if (cancelled) return;
 
         if (body.status === 'done') {
@@ -79,15 +75,12 @@ export function useJob(filename) {
         }
         // 'processing' -> leave state alone and let the interval fire again.
       } catch (e) {
-        if (cancelled || e.name === 'AbortError') return;
-        // A 404 means the job id is gone -- the server keeps job state in
-        // memory, so a restart loses it. Stop polling and say so.
+        if (cancelled) return;
+        // "Job ID not found" means the id is gone -- the server keeps job
+        // state in memory, so a restart loses it. Either way, stop polling
+        // and show what the server said.
         setStatus('error');
-        setError(
-          e.status === 404 || e instanceof ApiError
-            ? e.message
-            : `Lost contact with the server: ${e.message}`
-        );
+        setError(e.message);
       }
     };
 
@@ -101,7 +94,6 @@ export function useJob(filename) {
 
     return () => {
       cancelled = true;
-      controller.abort();
       clearInterval(interval);
       clearInterval(ticker);
     };

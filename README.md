@@ -51,8 +51,10 @@ If the server is down, start with mock data instead:
 VITE_USE_MOCKS=true npm run dev
 ```
 
-A badge appears in the header so it is obvious the data is fake. Mock mode is a
-development fallback only — the real API is the default path.
+`api.js` then serves a canned video list and draws a synthetic thumbnail (a
+dark frame with a red circle and a green square) so colour matching can still
+be exercised. Mock mode is a development fallback only — the real API is the
+default path.
 
 ---
 
@@ -62,7 +64,8 @@ development fallback only — the real API is the default path.
 | --- | --- |
 | `npm run dev` | Dev server with hot reload and the backend proxy |
 | `npm run build` | Production build into `dist/` |
-| `npm test` | Mocha unit tests for the ported detection algorithm |
+| `npm run lint` | ESLint |
+| `npm test` | Mocha unit tests for the detection algorithm |
 | `npm run test:e2e` | Cypress end-to-end tests (needs `npm run dev` running) |
 | `npm run cypress:open` | Cypress interactive runner |
 
@@ -86,7 +89,9 @@ development fallback only — the real API is the default path.
 
 `GET /api/videos` returns a plain JSON array of filenames. Each one links to
 `/preview/<filename>`; the filename lives in the URL, so a preview page can be
-reloaded or shared.
+reloaded or shared. Loading and error states are handled by the `withStatus`
+higher-order component, which wraps the list and renders a spinner or an alert
+in its place.
 
 ### Live tuning
 
@@ -97,7 +102,7 @@ threshold or target color re-runs the full detection pipeline in the browser:
 ```
 thumbnail JPEG
   -> <img> -> offscreen canvas -> ImageData
-  -> binarize: Euclidean RGB distance to target color, < threshold ? 1 : 0
+  -> binarizePixels: Euclidean RGB distance to target color, < threshold ? white : black
   -> DFS connected groups (4-way, no diagonals)
   -> sort descending by size, then centroid x, then y
   -> largest group's centroid -> the dot
@@ -123,8 +128,8 @@ matched.
 
 > **`targetColor` must be bare six-digit hex with no leading `#`.** The backend
 > rejects a `#` with a 400 because the processor calls `Integer.parseInt(hex, 16)`.
-> `<input type="color">` always produces `#rrggbb`, so the API client strips it
-> in one place where no caller can forget.
+> `<input type="color">` always produces `#rrggbb`, so `startJob` strips it in
+> one place where no caller can forget.
 
 ---
 
@@ -151,19 +156,26 @@ next to the button rather than quietly implying otherwise.
 
 ---
 
-## The algorithm port
+## The algorithm
 
 Step 3 of the assignment requires reimplementing the Java detection logic
-exactly in JavaScript. Each Java class has a direct counterpart in `src/lib/`:
+exactly in JavaScript. Each Java class has a counterpart in `src/utils/`:
 
 | Java | JavaScript |
 | --- | --- |
 | `EuclideanColorDistance` | `euclideanColorDistance.js` |
-| `DistanceImageBinarizer` | `distanceImageBinarizer.js` |
+| `DistanceImageBinarizer` | `binarize.js` (fast path) / `distanceImageBinarizer.js` (literal translation) |
 | `DfsBinaryGroupFinder` | `dfsBinaryGroupFinder.js` |
 | `Group` / `Coordinate` | `group.js` |
 | `CroppingImageGroupFinder` | `croppingImageGroupFinder.js` |
 | `BinarizingImageGroupFinder` | `pipeline.js` |
+
+There are two binarizers on purpose. `binarize.js` is the one the app runs: a
+single pass over a typed array that compares squared distances to avoid a sqrt
+per pixel. `distanceImageBinarizer.js` is the line-by-line translation of the
+Java, kept as the reference. A unit test runs both over a random image across
+many colors and thresholds and asserts they agree on every pixel, which is what
+keeps the optimized version honest.
 
 Details that must match, and do:
 
@@ -181,9 +193,9 @@ Details that must match, and do:
 
 The port was checked against real output rather than assumed correct. The
 backend processed `testclip.mp4` and wrote its CSV; the same frame 0 was then
-run through the JavaScript port:
+run through the JavaScript:
 
-| Settings | Java CSV (frame 0) | JavaScript port |
+| Settings | Java CSV (frame 0) | JavaScript |
 | --- | --- | --- |
 | `targetColor=1A1A1A threshold=120` | `0.000,159,119` | `(159, 119)`, 73200 px |
 | `targetColor=8B4513 threshold=90` | `0.000,-1,-1` | no match |
@@ -195,11 +207,12 @@ browser actually sees.
 
 ## Testing
 
-**Mocha — 60 unit tests** over the ported algorithm, mirroring the backend's
-JUnit suites (`EuclideanColorDistanceTests`, `DfsBinaryGroupFinderTests`,
+**Mocha — 64 unit tests** over the algorithm, mirroring the backend's JUnit
+suites (`EuclideanColorDistanceTests`, `DfsBinaryGroupFinderTests`,
 `DistanceImageBinarizerTest`, `CroppingImageGroupFinderTests`) case for case,
 including the error types, the integer-division centroid, the strict `<`
-boundary, and diagonal non-connectivity.
+boundary, and diagonal non-connectivity — plus the agreement tests between the
+two binarizers.
 
 ```bash
 npm test
@@ -236,34 +249,45 @@ env -u ELECTRON_RUN_AS_NODE npx cypress run
 
 ```
 src/
-  api/client.js              every HTTP call, and the mock switch
-  mock/                      mock data shaped like the real responses
-  lib/                       the Java algorithm, ported (framework-free)
-  hooks/
-    useImageData.js          thumbnail -> canvas -> ImageData
-    useBinarization.js       re-runs the pipeline as settings change
-    useJob.js                submit + poll to completion
-  components/                frames, crop overlay, controls, job panel
+  api.js                     every HTTP call, and the mock switch
+  App.jsx                    routes
+  main.jsx                   MUI theme + router
+  hocs/withStatus.jsx        loading/error wrapper
+  utils/
+    binarize.js              binarization (the fast path the app runs)
+    euclideanColorDistance.js
+    distanceImageBinarizer.js  literal Java translation, the reference
+    dfsBinaryGroupFinder.js  connected groups
+    group.js                 Group / Coordinate
+    croppingImageGroupFinder.js
+    pipeline.js              binarize -> group -> largest
+  hooks/useJob.js            submit + poll to completion
+  components/
+    FrameOverlay.jsx         crop drag + centroid overlay
+    CentroidMarker.jsx       the dot
+    JobPanel.jsx             submit, progress, CSV link
   pages/
     VideoChooser.jsx         /videos
-    VideoPreview.jsx         /preview/:filename
+    Preview.jsx              /preview/:filename
 test/                        Mocha unit tests
 cypress/e2e/                 Cypress end-to-end tests
 ```
 
-`src/lib/` imports nothing from React, which is what lets the same code run in
+`src/utils/` imports nothing from React, which is what lets the same code run in
 the browser and under Mocha in Node.
 
 ---
 
 ## Notes for the team
 
-- **Steps 1 and 2** (the chooser and the thumbnail fetch) are a minimal working
-  version, marked in `VideoChooser.jsx`. The only contract the rest of the app
-  depends on is that each entry links to `/preview/<filename>`.
 - **`/videos` is both a frontend route and a backend static path.** The Vite
   proxy entry is the regex `^/videos/.+`, so `/videos/clip.mp4` (a file) is
   forwarded while `/videos` (the page) stays with React Router. A plain
   `/videos` proxy entry makes the chooser page 404.
+- **Proxy keys must start with `/`.** Vite matches them against the request
+  path, so a key of `api` never matches `/api/videos`.
+- **MUI v6+ removed the system props.** `justifyContent`, `alignItems` and
+  `flexWrap` are silently ignored when passed directly to `Stack`; they have to
+  go through `sx`.
 - Job state lives in memory on the server, so restarting it makes in-flight job
   ids return 404. The app surfaces that message rather than polling forever.

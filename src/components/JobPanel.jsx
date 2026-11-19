@@ -1,12 +1,24 @@
+import {
+  Alert,
+  Box,
+  Button,
+  Chip,
+  LinearProgress,
+  Link as MuiLink,
+  Paper,
+  Stack,
+  Typography,
+} from '@mui/material';
+
 /**
  * Steps 4 and 5: submit the job, then show its progress and the finished CSV.
  *
- * The submit button is disabled while a job is in flight so the same settings
- * cannot be queued twice by an impatient double-click.
+ * The button is disabled while a job is in flight, so the same settings cannot
+ * be queued twice by an impatient double-click.
  *
  * Progress is genuinely unknowable here -- the status endpoint reports only
  * processing/done/error, with no percentage -- so this shows an indeterminate
- * bar and a live elapsed-seconds count rather than inventing a percentage.
+ * bar and a live elapsed count rather than inventing one.
  */
 export default function JobPanel({
   jobId,
@@ -23,30 +35,29 @@ export default function JobPanel({
   roi,
 }) {
   const running = status === 'processing';
+  const hex = targetColor.replace(/^#/, '').toUpperCase();
 
   return (
-    <section className="card job-panel">
-      <h2>Process video</h2>
+    <Paper variant="outlined" sx={{ p: 2.5 }}>
+      <Typography variant="h6" gutterBottom>
+        Process video
+      </Typography>
 
-      <p className="job-summary">
-        Sends <code>threshold={threshold}</code> and{' '}
-        <code>targetColor={targetColor.replace(/^#/, '').toUpperCase()}</code> to
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        Sends <code>threshold={threshold}</code> and <code>targetColor={hex}</code> to
         the backend, which runs the detector over every frame and writes a CSV.
         {roi && (
-          <>
+          <Box component="span" sx={{ color: 'warning.main' }}>
             {' '}
-            <span className="job-note">
-              Note: the crop region is a preview-only aid -- the backend
-              processes the full frame.
-            </span>
-          </>
+            Note: the crop region is a preview-only aid -- the backend processes
+            the full frame.
+          </Box>
         )}
-      </p>
+      </Typography>
 
-      <div className="job-actions">
-        <button
-          type="button"
-          className="primary"
+      <Stack direction="row" spacing={1.5} useFlexGap sx={{ flexWrap: 'wrap' }}>
+        <Button
+          variant="contained"
           onClick={() => onSubmit(targetColor, threshold)}
           disabled={disabled || submitting || running}
           data-testid="process-button"
@@ -56,63 +67,82 @@ export default function JobPanel({
             : running
               ? 'Processing...'
               : 'Process Video with These Settings'}
-        </button>
+        </Button>
 
         {(status === 'done' || status === 'error') && (
-          <button type="button" className="secondary" onClick={onReset}>
+          <Button variant="outlined" onClick={onReset}>
             Start another
-          </button>
+          </Button>
         )}
-      </div>
+      </Stack>
 
       {status && (
-        <div className="job-status" data-testid="job-status">
-          <div className="job-status-head">
-            <span className={`badge badge--${status}`}>{status}</span>
+        <Box sx={{ mt: 2.5 }} data-testid="job-status">
+          <Stack
+            direction="row"
+            spacing={1.5}
+            useFlexGap
+            sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+          >
+            <Chip
+              size="small"
+              label={status}
+              color={
+                status === 'done' ? 'success' : status === 'error' ? 'error' : 'warning'
+              }
+            />
             {jobId && (
-              <code className="job-id" title="Job ID returned by the API">
+              <Typography variant="caption" color="text.secondary" component="code">
                 {jobId}
-              </code>
+              </Typography>
             )}
-            {running && <span className="job-elapsed">{elapsed}s</span>}
-          </div>
+            {running && (
+              <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
+                {elapsed}s
+              </Typography>
+            )}
+          </Stack>
 
-          {running && (
-            <div
-              className="progress"
-              role="progressbar"
-              aria-label="Processing video"
-            >
-              <div className="progress-bar" />
-            </div>
-          )}
+          {running && <LinearProgress sx={{ mt: 1.5 }} />}
 
           {status === 'done' && resultUrl && (
-            <div className="job-result">
-              <p>Finished. The results are ready:</p>
-              <a
-                className="csv-link"
-                href={resultUrl}
-                download
-                data-testid="csv-link"
-              >
-                Download CSV
-              </a>
-              <code className="result-path">{resultUrl}</code>
-              <p className="control-hint">
+            <Box sx={{ mt: 2 }}>
+              <Typography variant="body2" gutterBottom>
+                Finished. The results are ready:
+              </Typography>
+              <Stack
+            direction="row"
+            spacing={1.5}
+            useFlexGap
+            sx={{ alignItems: 'center', flexWrap: 'wrap' }}
+          >
+                <Button
+                  variant="outlined"
+                  component={MuiLink}
+                  href={resultUrl}
+                  download
+                  data-testid="csv-link"
+                >
+                  Download CSV
+                </Button>
+                <Typography variant="caption" color="text.secondary" component="code">
+                  {resultUrl}
+                </Typography>
+              </Stack>
+              <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1 }}>
                 One row per frame, as <code>seconds,x,y</code>. A row of{' '}
                 <code>-1,-1</code> means nothing matched in that frame.
-              </p>
-            </div>
+              </Typography>
+            </Box>
           )}
 
           {status === 'error' && (
-            <p className="error" data-testid="job-error">
+            <Alert severity="error" sx={{ mt: 1.5 }} data-testid="job-error">
               {error}
-            </p>
+            </Alert>
           )}
-        </div>
+        </Box>
       )}
-    </section>
+    </Paper>
   );
 }

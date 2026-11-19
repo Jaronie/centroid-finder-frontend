@@ -4,13 +4,13 @@ import {
   toImageData,
   imageSourceFromColorGrid,
   imageSourceFromImageData,
-} from '../src/lib/distanceImageBinarizer.js';
+} from '../src/utils/distanceImageBinarizer.js';
 import {
   findConnectedGroupsInRegion,
   roiFromInset,
-} from '../src/lib/croppingImageGroupFinder.js';
-import { findConnectedGroups } from '../src/lib/dfsBinaryGroupFinder.js';
-import { findGroupsInImage } from '../src/lib/pipeline.js';
+} from '../src/utils/croppingImageGroupFinder.js';
+import { findConnectedGroups } from '../src/utils/dfsBinaryGroupFinder.js';
+import { findGroupsInImage } from '../src/utils/pipeline.js';
 
 // Stand-in for the browser's ImageData, so these tests run in plain Node.
 function createImageData(width, height) {

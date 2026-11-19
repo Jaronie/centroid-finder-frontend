@@ -16,10 +16,13 @@ const VIDEOS = ['testclip.mp4', 'salamander2.mov'];
  *
  * Calling .invoke('val', x) is not enough: React patches the value setter on
  * HTMLInputElement to track changes, so assigning through jQuery updates the
- * DOM but leaves React's internal value unchanged, and the onChange handler
- * never sees the new value. Going through the prototype's native setter and
- * then dispatching a bubbling 'input' event is what React actually listens
- * for, so state updates exactly as it does for a real drag.
+ * DOM but leaves React's internal value unchanged and onChange never fires.
+ * Going through the prototype's native setter and then dispatching bubbling
+ * input/change events is what React actually listens for.
+ *
+ * MUI's <Slider> renders a real <input type="range"> inside its root element
+ * and drives its own state from that input's events, so the same approach
+ * works for it -- the selector just has to reach the inner input.
  */
 function setReactInput(selector, value) {
   cy.get(selector).then(($el) => {
@@ -30,21 +33,24 @@ function setReactInput(selector, value) {
     ).set;
     setter.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
   });
 }
+
+const slider = '[data-testid=threshold-slider] input[type=range]';
+const colorPicker = '[data-testid=color-picker]';
 
 /** Stubs the endpoints every page needs. */
 function stubCommon() {
   cy.intercept('GET', '/api/videos', { statusCode: 200, body: VIDEOS }).as('videos');
 
   // The thumbnail must be real image bytes, because the page decodes it and
-  // reads its pixels to binarize. A JSON stub would fail to load.
+  // reads its pixels to binarize. Cypress infers binary encoding from the
+  // extension here. (The "frame.jpg,binary" form belongs to cy.fixture(), not
+  // cy.intercept() -- using it sends a corrupt body and the <img> fails.)
   cy.intercept('GET', '/thumbnail/*', {
     statusCode: 200,
     headers: { 'content-type': 'image/jpeg' },
-    // Cypress infers binary encoding from the image extension here. (The
-    // "frame.jpg,binary" form belongs to cy.fixture(), not cy.intercept() --
-    // using it here sends a corrupt body and the <img> fails to decode.)
     fixture: 'frame.jpg',
   }).as('thumbnail');
 }
@@ -56,7 +62,7 @@ describe('Video Chooser (/videos)', () => {
     cy.visit('/videos');
     cy.wait('@videos');
 
-    cy.get('[data-testid=video-list] li').should('have.length', VIDEOS.length);
+    cy.get('.MuiList-root .MuiListItemButton-root').should('have.length', VIDEOS.length);
     cy.contains('testclip.mp4').should('be.visible');
   });
 
@@ -82,7 +88,8 @@ describe('Video Chooser (/videos)', () => {
 
     cy.visit('/videos');
     cy.wait('@failed');
-    cy.get('[data-testid=videos-error]').should('contain', 'Error reading video directory');
+    // withStatus renders an MUI Alert for the error branch.
+    cy.get('.MuiAlert-root').should('contain', 'Error reading video directory');
   });
 });
 
@@ -107,30 +114,31 @@ describe('Video Preview (/preview/:filename)', () => {
 
   it('recomputes the centroid live as the threshold changes', () => {
     // At threshold 0 nothing can match: the comparison is strictly less-than.
-    setReactInput('[data-testid=threshold-slider]', 0);
+    setReactInput(slider, 0);
     cy.get('[data-testid=centroid]').should('contain', 'no match');
 
     // Wide open: everything matches, so one group covers the whole frame and
     // the centroid sits at its middle.
-    setReactInput('[data-testid=threshold-slider]', 442);
+    setReactInput(slider, 442);
     cy.get('[data-testid=centroid]').should('contain', '(159, 119)');
     cy.get('[data-testid=stats]').should('contain', '76800 px');
   });
 
   it('updates the preview when the target color changes', () => {
-    setReactInput('[data-testid=threshold-slider]', 120);
+    setReactInput(slider, 120);
 
-    // Black target: the dark frame matches.
-    cy.get('.hex-input').clear().type('1A1A1A');
+    // Near-black target: the dark frame matches.
+    setReactInput(colorPicker, '#1a1a1a');
     cy.get('[data-testid=centroid]').should('contain', '(159, 119)');
 
     // A saturated color nothing in the frame is near: no match.
-    cy.get('.hex-input').clear().type('FF00FF');
+    setReactInput(colorPicker, '#ff00ff');
     cy.get('[data-testid=centroid]').should('contain', 'no match');
   });
 
   it('restricts the search to a dragged crop region and clears it again', () => {
-    setReactInput('[data-testid=threshold-slider]', 442);
+    setReactInput(slider, 442);
+    cy.get('[data-testid=stats]').should('contain', '76800 px');
 
     // Drag a rectangle over the top-left quarter of the frame.
     cy.get('[data-testid=crop-surface]').then(($svg) => {
@@ -186,7 +194,7 @@ describe('Job submission and tracking', () => {
     cy.visit('/preview/testclip.mp4');
     cy.wait('@thumbnail');
 
-    setReactInput('[data-testid=threshold-slider]', 150);
+    setReactInput(slider, 150);
 
     cy.get('[data-testid=process-button]').click();
     cy.wait('@submit');
@@ -196,8 +204,11 @@ describe('Job submission and tracking', () => {
 
     cy.wait('@status');
     cy.get('[data-testid=job-status]', { timeout: 10000 }).should('contain', 'done');
-    cy.get('[data-testid=csv-link]')
-      .should('have.attr', 'href', '/results/testclip.mp4.csv');
+    cy.get('[data-testid=csv-link]').should(
+      'have.attr',
+      'href',
+      '/results/testclip.mp4.csv'
+    );
   });
 
   it('shows the error the server reports for a failed job', () => {
@@ -214,8 +225,10 @@ describe('Job submission and tracking', () => {
     cy.wait('@thumbnail');
     cy.get('[data-testid=process-button]').click();
 
-    cy.get('[data-testid=job-error]', { timeout: 10000 })
-      .should('contain', 'Unexpected ffmpeg error');
+    cy.get('[data-testid=job-error]', { timeout: 10000 }).should(
+      'contain',
+      'Unexpected ffmpeg error'
+    );
   });
 
   it('surfaces a 400 from the server when submission is rejected', () => {

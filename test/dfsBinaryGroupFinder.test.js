@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { findConnectedGroups } from '../src/lib/dfsBinaryGroupFinder.js';
-import { compareGroups, toCsvRow } from '../src/lib/group.js';
+import { findConnectedGroups } from '../src/utils/dfsBinaryGroupFinder.js';
+import { compareGroups, toCsvRow } from '../src/utils/group.js';
 
 // Mirrors DfsBinaryGroupFinderTests.java.
 // Java's NullPointerException maps to TypeError; IllegalArgumentException to Error.
